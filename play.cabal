@@ -42,8 +42,10 @@ library
   exposed-modules:
     MySDL.MySDL
    ,MySDL.Run
-   ,Play.Run
    ,Play.Utils
+   ,Play.Types
+   ,Play.Collisions
+   ,Play.Run
 
   exposed:
     True

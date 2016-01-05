@@ -6,7 +6,7 @@
 
 module Play.Run where
 
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe (fromMaybe, isJust)
 import           Control.Monad.IO.Class (MonadIO)
 import qualified SDL
 import qualified Data.Vector.Storable as VS
@@ -14,56 +14,29 @@ import qualified Foreign.C.Types as C (CInt)
 import qualified Linear
 import qualified Linear.Affine as Linear
 import qualified Control.Lens     as Lens
-import           Control.Lens (makeLenses, ALens', (&), (^.))
+import           Control.Lens (makeLenses, (&), (^.))
 
 import qualified MySDL.MySDL as MySDL
 import qualified MySDL.Run   as MySDL
+import           Play.Types
+import           Play.Collisions
+
 
 -----------
 -- Types --
 -----------
 
-data Point = Point { _x :: Int, _y :: Int }
-data Size  = Size { _w :: Int, _h :: Int }
-
-pointToTuple :: Point -> (Int, Int)
-pointToTuple (Point x_ y_) = (x_, y_)
-sizeToTuple :: Size -> (Int, Int)
-sizeToTuple (Size w_ h_) = (w_, h_)
-
-data GameObj s =
-  GameObj
-    { _movement :: MovementComponent s
-    , _state :: s
-    }
-
-data MovementComponent s =
-  MovementComponent
-    { _position :: ALens' s Point
-    , _size :: ALens' s Size
-    }
-
 data Game =
   Game
-    { _screen :: GameObj (Point, Size)
-    , _playerA :: GameObj (Point, Size)
-    , _playerB :: GameObj (Point, Size)
+    { _screen :: GameObj (Point, Size, Maybe Point)
+    , _playerA :: GameObj (Point, Size, Maybe Point)
+    , _playerB :: GameObj (Point, Size, Maybe Point)
     , _ball :: Ball
     }
 
-type Ball = GameObj (Point, Size, Int)
+type Ball = GameObj (Point, Size, Int, Maybe Point)
 
-makeLenses ''MovementComponent
-makeLenses ''GameObj
-makeLenses ''Point
-makeLenses ''Size
 makeLenses ''Game
-
-sizeOf :: GameObj s -> Lens.Lens' (GameObj s) Size
-sizeOf obj = state . Lens.cloneLens (obj ^. movement . size)
-
-posOf :: GameObj s -> Lens.Lens' (GameObj s) Point
-posOf obj = state . Lens.cloneLens (obj ^. movement . position)
 
 type Keys = [(Key, Bool)]
 
@@ -92,10 +65,10 @@ initWorld = pure (worldInterface, initGame)
 initGame :: Game
 initGame =
   Game
-    { _screen  = GameObj (MovementComponent Lens._1 Lens._2) (Point 0 0, Size 800 600)
-    , _playerA = GameObj (MovementComponent Lens._1 Lens._2) (Point 350 50, Size 100 30)
-    , _playerB = GameObj (MovementComponent Lens._1 Lens._2) (Point 350 520, Size 100 30)
-    , _ball    = GameObj (MovementComponent Lens._1 Lens._2) (Point 390 290, Size 20 20, 3)
+    { _screen  = GameObj (MovementComponent Lens._1 Lens._2) (CollisionComponent Lens._3) (Point 0 0, Size 800 600, Nothing)
+    , _playerA = GameObj (MovementComponent Lens._1 Lens._2) (CollisionComponent Lens._3) (Point 350 50, Size 100 30, Nothing)
+    , _playerB = GameObj (MovementComponent Lens._1 Lens._2) (CollisionComponent Lens._3) (Point 350 520, Size 100 30, Nothing)
+    , _ball    = GameObj (MovementComponent Lens._1 Lens._2) (CollisionComponent Lens._4) (Point 390 290, Size 20 20, 3, Nothing)
     }
 
 worldInterface :: MySDL.WorldInterface Keys Game
@@ -128,7 +101,7 @@ update :: MonadIO m => Keys -> MySDL.World Game ->  m (Either (Maybe String) (My
 update keys (sets, game) =
   let mov = keysToMovement keys
       nGame = game & Lens.over (playerA . posOf (game ^. playerA)) (`addPoint` mov)
-                   & Lens.over ball updateBall
+                   & Lens.over ball (updateBall game)
   in  (pure . pure) (sets, nGame)
 
 addPoint :: Point -> Point -> Point
@@ -136,23 +109,30 @@ addPoint p1 p2 =
   p1 & Lens.over x (+ (p2 ^. x))
      & Lens.over y (+ (p2 ^. y))
 
-updateBall :: Ball -> Ball
-updateBall obj =
-  case checkScreenBounds $ Lens.over (posOf obj) (`addPoint` Point 0 (obj ^. state . Lens._3)) obj of
+updateBall :: Game -> Ball -> Ball
+updateBall game obj =
+  case checkScreenBounds (game ^. screen) $ Lens.over (posOf obj) (`addPoint` Point 0 (obj ^. state . Lens._3)) obj of
     (True, ball') ->
       Lens.over (state . Lens._3) (* (-1)) ball'
     (False, ball') ->
-      ball'
+      case testCollisionWith [ball'] [game ^. playerA, game ^. playerB] of
+        [ball''] ->
+          if isJust (ball'' ^. collidedOf ball'') then
+            Lens.over (state . Lens._3) (* (-1)) ball'
+          else
+            ball''
 
-checkScreenBounds :: GameObj s -> (Bool, GameObj s)
-checkScreenBounds obj =
+checkScreenBounds :: GameObj a -> GameObj s -> (Bool, GameObj s)
+checkScreenBounds closing obj =
   let (Point x_ y_) = obj ^. posOf obj
       (Size  w_ h_) = obj ^. sizeOf obj
+      (Point bx by) = closing ^. posOf closing
+      (Size  bw bh) = closing ^. sizeOf closing
   in
-  if | x_ < 0 -> (,) True $ Lens.set (posOf obj . x) 0 obj
-     | x_ + w_ > 800 -> (,) True $ Lens.set (posOf obj . x) (800 - w_) obj
-     | y_ < 0 -> (,) True $ Lens.set (posOf obj . y) 0 obj
-     | y_ + h_ > 600 -> (,) True $ Lens.set (posOf obj . y) (600 - h_) obj
+  if | x_ < bx -> (,) True $ Lens.set (posOf obj . x) bx obj
+     | x_ + w_ > bx + bw -> (,) True $ Lens.set (posOf obj . x) (bw - w_) obj
+     | y_ < by -> (,) True $ Lens.set (posOf obj . y) by obj
+     | y_ + h_ > by + bh -> (,) True $ Lens.set (posOf obj . y) (bh - h_) obj
      | otherwise -> (False, obj)
 
 -- render
