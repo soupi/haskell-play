@@ -28,13 +28,13 @@ import           Play.Collisions
 
 data Game =
   Game
-    { _screen :: GameObj (Point, Size, Maybe Point)
-    , _playerA :: GameObj (Point, Size, Maybe Point)
-    , _playerB :: GameObj (Point, Size, Maybe Point)
+    { _screen  :: GameObj (Point, Size, Point, Int, Maybe Point)
+    , _playerA :: GameObj (Point, Size, Point, Int, Maybe Point)
+    , _playerB :: GameObj (Point, Size, Point, Int, Maybe Point)
     , _ball :: Ball
     }
 
-type Ball = GameObj (Point, Size, Int, Maybe Point)
+type Ball = GameObj (Point, Size, Point, Int, Maybe Point)
 
 makeLenses ''Game
 
@@ -65,11 +65,43 @@ initWorld = pure (worldInterface, initGame)
 initGame :: Game
 initGame =
   Game
-    { _screen  = GameObj (MovementComponent Lens._1 Lens._2) (CollisionComponent Lens._3) (Point 0 0, Size 800 600, Nothing)
-    , _playerA = GameObj (MovementComponent Lens._1 Lens._2) (CollisionComponent Lens._3) (Point 350 50, Size 100 30, Nothing)
-    , _playerB = GameObj (MovementComponent Lens._1 Lens._2) (CollisionComponent Lens._3) (Point 350 520, Size 100 30, Nothing)
-    , _ball    = GameObj (MovementComponent Lens._1 Lens._2) (CollisionComponent Lens._4) (Point 390 290, Size 20 20, 3, Nothing)
+    { _screen  = initScreen
+    , _playerA = initPlayerA
+    , _playerB = initPlayerB
+    , _ball    = initBall
     }
+
+initScreen =
+  GameObj
+    (PositionComponent Lens._1 Lens._2)
+    (MovementComponent Lens._3 Lens._4)
+    (CollisionComponent Lens._5)
+    (Point 0 0, Size 800 600, Point 0 0, 0, Nothing)
+
+
+initBall :: Ball
+initBall =
+  GameObj
+    (PositionComponent Lens._1 Lens._2)
+    (MovementComponent Lens._3 Lens._4)
+    (CollisionComponent Lens._5)
+    (Point 390 290, Size 20 20, Point 0 1, 3, Nothing)
+
+initPlayerA =
+  GameObj
+    (PositionComponent Lens._1 Lens._2)
+    (MovementComponent Lens._3 Lens._4)
+    (CollisionComponent Lens._5)
+    (Point 350 50, Size 100 30, Point 0 0, 2, Nothing)
+
+initPlayerB =
+  GameObj
+    (PositionComponent Lens._1 Lens._2)
+    (MovementComponent Lens._3 Lens._4)
+    (CollisionComponent Lens._5)
+    (Point 350 520, Size 100 30, Point 0 0, 2, Nothing)
+
+
 
 worldInterface :: MySDL.WorldInterface Keys Game
 worldInterface =
@@ -105,20 +137,32 @@ update keys (sets, game) =
   in  (pure . pure) (sets, nGame)
 
 addPoint :: Point -> Point -> Point
-addPoint p1 p2 =
-  p1 & Lens.over x (+ (p2 ^. x))
-     & Lens.over y (+ (p2 ^. y))
+addPoint = apToPoint (+)
+
+mulPoint :: Point -> Point -> Point
+mulPoint = apToPoint (*)
+
+apToPoint :: (Int -> Int -> Int) -> Point -> Point -> Point
+apToPoint f p1 p2 =
+  p1 & Lens.over x (f (p2 ^. x))
+     & Lens.over y (f (p2 ^. y))
+
+moveObj :: GameObj s -> GameObj s
+moveObj obj =
+  let spd = obj ^. speedOf obj
+      dir = (obj ^. directionOf obj) `mulPoint` Point spd spd
+  in Lens.over (posOf obj) (`addPoint` dir) obj
 
 updateBall :: Game -> Ball -> Ball
 updateBall game obj =
-  case checkScreenBounds (game ^. screen) $ Lens.over (posOf obj) (`addPoint` Point 0 (obj ^. state . Lens._3)) obj of
+  case checkScreenBounds (game ^. screen) $ moveObj obj of
     (True, ball') ->
-      Lens.over (state . Lens._3) (* (-1)) ball'
+      Lens.over (directionOf ball' . y) (* (-1)) ball'
     (False, ball') ->
       case testCollisionWith [ball'] [game ^. playerA, game ^. playerB] of
         [ball''] ->
           if isJust (ball'' ^. collidedOf ball'') then
-            Lens.over (state . Lens._3) (* (-1)) ball'
+            Lens.over (directionOf ball' . y) (* (-1)) ball'
           else
             ball''
 
