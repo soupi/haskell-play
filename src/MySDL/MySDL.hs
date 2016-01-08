@@ -20,7 +20,7 @@ myWindowConfig size = SDL.defaultWindow { SDL.windowInitialSize = size }
 -- |will init SDL and create a Window and pass in as a parameter to function
 withWindow :: MonadIO m => Text -> SDL.WindowConfig -> (SDL.Window -> m a) -> m a
 withWindow title winConf go = do
-  SDL.initialize [SDL.InitEverything]
+  SDL.initializeAll
 
   window <- SDL.createWindow title winConf
   SDL.showWindow window

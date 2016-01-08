@@ -1,9 +1,10 @@
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Play.Collisions where
 
-import qualified Control.Lens     as Lens
-import           Control.Lens ((^.))
+import qualified Lens.Micro as Lens
+import           Lens.Micro ((^.))
 
 import           Play.Types
 
@@ -11,63 +12,70 @@ import           Play.Types
 -- Collisions
 ----------------
 
-
-testCollisionWith :: [GameObj a]
-                  -> [GameObj b]
-                  -> [GameObj a]
+testCollisionWith :: (HasCollision a CollisionComponent, HasPosition a PositionComponent
+                     ,HasCollision b CollisionComponent, HasPosition b PositionComponent)
+                  => [a] -> [b] -> [a]
 testCollisionWith objs1 objs2 =
-  fmap (\o -> Lens.set (collidedOf o) (foldl addCollisions Nothing $ fmap (collisionDetection o) objs2) o) objs1
+  (\o -> Lens.set (collision . collided) (foldl addCollisions Nothing $ fmap (collisionDetection o) objs2) o) <$> objs1
 
-collisionDetection :: GameObj a
-          -> GameObj b
-          -> Maybe Point
+collisionDetection :: (HasCollision a CollisionComponent, HasPosition a PositionComponent
+                      ,HasCollision b CollisionComponent, HasPosition b PositionComponent)
+                    => a -> b -> Maybe Point
 collisionDetection a b =
-  if testCollision a (b ^. posOf b, b ^. sizeOf b) then collisionDirection a b else Nothing
+  let bData = (b ^. position . pos, b ^. position . size)
+      aData = (a ^. position . pos, a ^. position . size)
+  in
+    if testCollision aData bData then
+       collisionDirection a b
+    else Nothing
 
-testCollision :: GameObj a
+testCollision :: (Point, Size)
               -> (Point, Size)
               -> Bool
-testCollision a b =
+testCollision (Point ax ay, Size aw ah) (Point bx by, Size bw bh) =
   not $
-      a ^. posOf a . x >= b ^. Lens._1  . x +  b ^. Lens._2 . w
-   || a ^. posOf a . y >= b ^. Lens._1  . y +  b ^. Lens._2 . h
-   || a ^. posOf a . x +  a ^. sizeOf a . w <= b ^. Lens._1 . x
-   || a ^. posOf a . y +  a ^. sizeOf a . h <= b ^. Lens._1 . y
+     ax >= bx +  bw
+  || ay >= by +  bh
+  || ax +  aw <= bx
+  || ay +  ah <= by
 
-cornerRects :: GameObj a -> [(Point, Size)]
-cornerRects obj =
-  let size' = Size (obj ^. sizeOf obj . w `div` 2) (obj ^. sizeOf obj . h `div` 2)
+cornerRects :: (Point, Size) -> [(Point, Size)]
+cornerRects (Point ox oy, Size ow oh) =
+  let size' = Size (ow `div` 2) (oh `div` 2)
   in
-    [ (Point (obj^.posOf obj.x) (obj^.posOf obj.y), size')
-    , (Point (obj^.posOf obj.x + obj^.sizeOf obj.w `div` 2) (obj^.posOf obj.y), size')
-    , (Point (obj^.posOf obj.x) (obj^.posOf obj.y + obj^.sizeOf obj.h `div` 2), size')
-    , (Point (obj^.posOf obj.x + obj^.sizeOf obj.h `div` 2) (obj^.posOf obj.y + obj^.sizeOf obj.h `div` 2), size')
+    [ (Point ox oy, size')
+    , (Point (ox + ow `div` 2) oy, size')
+    , (Point ox (oy + oh `div` 2), size')
+    , (Point (ox + oh `div` 2) (oy + oh `div` 2), size')
     ]
 
-corners :: GameObj a -> [Point]
-corners obj =
-  [ Point (obj^.posOf obj.x) (obj^.posOf obj.y)
-  , Point (obj^.posOf obj.x + obj^.sizeOf obj.w) (obj^.posOf obj.y)
-  , Point (obj^.posOf obj.x) (obj^.posOf obj.y + obj^.sizeOf obj.h)
-  , Point (obj^.posOf obj.x + obj^.sizeOf obj.w) (obj^.posOf obj.y + obj^.sizeOf obj.h)
+corners :: (Point, Size) -> [Point]
+corners (Point ox oy, Size ow oh) =
+  [ Point ox oy
+  , Point (ox + ow) oy
+  , Point ox (oy + oh)
+  , Point (ox + ow) (oy + oh)
   ]
 
 pointInRect :: Point
-            -> GameObj a
+            -> (Point, Size)
             -> Bool
-pointInRect (Point px py) obj =
-     (obj^.posOf obj.x <= px && px <= obj^.posOf obj.x + obj^.sizeOf obj.w)
-  && (obj^.posOf obj.y <= py && py <= obj^.posOf obj.y + obj^.sizeOf obj.h)
+pointInRect (Point px py) (Point ox oy, Size ow oh) =
+     (ox <= px && px <= ox + ow)
+  && (oy <= py && py <= oy + oh)
 
 
-collisionDirection :: GameObj a
-                   -> GameObj b
-                   -> Maybe Point
+collisionDirection :: (HasCollision a CollisionComponent, HasPosition a PositionComponent
+                      ,HasCollision b CollisionComponent, HasPosition b PositionComponent)
+                    => a -> b -> Maybe Point
 collisionDirection a b =
+  let bData = (b ^. position . pos, b ^. position . size)
+      aData = (a ^. position . pos, a ^. position . size)
+  in
   foldl addCollisions Nothing $
-  zipWith (\result test -> if test then Just result else Nothing)
-          [Point (-1) (-1), Point 1 (-1), Point (-1) 1, Point 1 1]
-          (map (testCollision b) (cornerRects a))
+    zipWith (\result test -> if test then Just result else Nothing)
+            [Point (-1) (-1), Point 1 (-1), Point (-1) 1, Point 1 1]
+            (map (testCollision bData) (cornerRects aData))
 
 addCollisions :: Maybe Point -> Maybe Point -> Maybe Point
 addCollisions Nothing a = a
