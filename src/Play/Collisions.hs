@@ -12,41 +12,40 @@ import           Play.Types
 -- Collisions
 ----------------
 
-testCollisionWith :: (HasCollision a CollisionComponent, HasPosition a PositionComponent
-                     ,HasCollision b CollisionComponent, HasPosition b PositionComponent)
-                  => [a] -> [b] -> [a]
+posAndColl :: (HasCollision a CollisionComponent, HasPosition a PositionComponent)
+           => a -> (PositionComponent, CollisionComponent)
+posAndColl obj = (obj ^. position, obj ^. collision)
+
+testCollisionWith :: (HasCollision a CollisionComponent, HasPosition a PositionComponent)
+                  => [a] -> [(PositionComponent, CollisionComponent)] -> [a]
 testCollisionWith objs1 objs2 =
   (\o -> Lens.set (collision . collided) (foldl addCollisions Nothing $ fmap (collisionDetection o) objs2) o) <$> objs1
 
-collisionDetection :: (HasCollision a CollisionComponent, HasPosition a PositionComponent
-                      ,HasCollision b CollisionComponent, HasPosition b PositionComponent)
-                    => a -> b -> Maybe Point
-collisionDetection a b =
-  let bData = (b ^. position . pos, b ^. position . size)
-      aData = (a ^. position . pos, a ^. position . size)
+collisionDetection :: (HasCollision a CollisionComponent, HasPosition a PositionComponent)
+                    => a -> (PositionComponent, CollisionComponent) -> Maybe Point
+collisionDetection a (bData,_) =
+  let aData = a ^. position
   in
-    if testCollision aData bData then
-       collisionDirection a b
-    else Nothing
+    collisionDirection aData bData
 
-testCollision :: (Point, Size)
-              -> (Point, Size)
+testCollision :: PositionComponent
+              -> PositionComponent
               -> Bool
-testCollision (Point ax ay, Size aw ah) (Point bx by, Size bw bh) =
+testCollision (PositionComponent (Point ax ay) (Size aw ah)) (PositionComponent (Point bx by) (Size bw bh)) =
   not $
      ax >= bx +  bw
   || ay >= by +  bh
   || ax +  aw <= bx
   || ay +  ah <= by
 
-cornerRects :: (Point, Size) -> [(Point, Size)]
-cornerRects (Point ox oy, Size ow oh) =
+cornerRects :: PositionComponent -> [PositionComponent]
+cornerRects (PositionComponent (Point ox oy) (Size ow oh)) =
   let size' = Size (ow `div` 2) (oh `div` 2)
   in
-    [ (Point ox oy, size')
-    , (Point (ox + ow `div` 2) oy, size')
-    , (Point ox (oy + oh `div` 2), size')
-    , (Point (ox + oh `div` 2) (oy + oh `div` 2), size')
+    [ PositionComponent (Point ox oy) size'
+    , PositionComponent (Point (ox + ow `div` 2) oy) size'
+    , PositionComponent (Point ox (oy + oh `div` 2)) size'
+    , PositionComponent (Point (ox + oh `div` 2) (oy + oh `div` 2)) size'
     ]
 
 corners :: (Point, Size) -> [Point]
@@ -65,13 +64,8 @@ pointInRect (Point px py) (Point ox oy, Size ow oh) =
   && (oy <= py && py <= oy + oh)
 
 
-collisionDirection :: (HasCollision a CollisionComponent, HasPosition a PositionComponent
-                      ,HasCollision b CollisionComponent, HasPosition b PositionComponent)
-                    => a -> b -> Maybe Point
-collisionDirection a b =
-  let bData = (b ^. position . pos, b ^. position . size)
-      aData = (a ^. position . pos, a ^. position . size)
-  in
+collisionDirection :: PositionComponent -> PositionComponent -> Maybe Point
+collisionDirection aData bData =
   foldl addCollisions Nothing $
     zipWith (\result test -> if test then Just result else Nothing)
             [Point (-1) (-1), Point 1 (-1), Point (-1) 1, Point 1 1]

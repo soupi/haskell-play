@@ -28,8 +28,8 @@ import           Play.Collisions
 -----------
 
 
-data Game =
-  Game
+data GameState =
+  GameState
     { _screen  :: Screen
     , _playerA :: GameObj
     , _playerB :: GameObj
@@ -46,7 +46,7 @@ data Screen =
 
 
 makeFields ''Screen
-makeLenses ''Game
+makeLenses ''GameState
 
 type Keys = [(Key, Bool)]
 
@@ -69,12 +69,12 @@ keyMapping =
 main :: IO ()
 main = MySDL.main initWorld
 
-initWorld :: Monad m => m (MySDL.WorldInterface Keys Game, Game)
+initWorld :: Monad m => m (MySDL.WorldInterface Keys GameState, GameState)
 initWorld = pure (worldInterface, initGame)
 
-initGame :: Game
+initGame :: GameState
 initGame =
-  Game
+  GameState
     { _screen  = initScreen
     , _playerA = initPlayerA
     , _playerB = initPlayerB
@@ -109,7 +109,7 @@ initPlayerB =
     (MovementComponent (Point 0 0) 3)
     (CollisionComponent Nothing)
 
-worldInterface :: MySDL.WorldInterface Keys Game
+worldInterface :: MySDL.WorldInterface Keys GameState
 worldInterface =
   MySDL.WorldInterface makeEvents update render
 
@@ -135,12 +135,16 @@ keysToMovement keys =
       vert = singleMove KeyLeft KeyRight
   in Point vert hori
 
-update :: MonadIO m => Keys -> MySDL.World Game ->  m (Either (Maybe String) (MySDL.World Game))
-update keys (sets, game) =
+update :: MonadIO m => Keys -> MySDL.World GameState ->  m (Either (Maybe String) (MySDL.World GameState))
+update keys (sets, state) =
   let mov = keysToMovement keys
-      nGame = game & Lens.over (playerA . position . pos) (`addPoint` mov)
-                   & Lens.over ball (updateBall game)
-  in  (pure . pure) (sets, nGame)
+      nState =
+        collisionLayers state
+          & Lens.over (playerA . position . pos) (`addPoint` mov)
+          & \s -> Lens.over ball (updateBall s) s
+          & collisionLayers
+          & undoCollisions
+  in  (pure . pure) (sets, nState)
 
 addPoint :: Point -> Point -> Point
 addPoint = apToPoint (+)
@@ -153,19 +157,47 @@ apToPoint f p1 p2 =
   p1 & Lens.over x (f (p2 ^. x))
      & Lens.over y (f (p2 ^. y))
 
-moveObj :: GameObj -> GameObj
-moveObj obj =
-  let spd = obj ^. movement . speed
-      dir = (obj ^. movement . direction) `mulPoint` Point spd spd
-  in Lens.over (position . pos) (`addPoint` dir) obj
+collisionLayers :: GameState -> GameState
+collisionLayers s =
+  s & \state -> Lens.over playerA (head . (`testCollisionWith` [posAndColl $ state ^. playerB]) . (:[])) state
+    & \state -> Lens.over playerB (head . (`testCollisionWith` [posAndColl $ state ^. playerA]) . (:[])) state
+    & \state -> Lens.over ball    (head . (`testCollisionWith` [posAndColl $ state ^. playerA, posAndColl $ state ^. playerB]) . (:[])) state
 
-updateBall :: Game -> Ball -> Ball
-updateBall game obj =
-  case checkScreenBounds (game ^. screen) $ moveObj obj of
+undoCollisions :: GameState -> GameState
+undoCollisions state =
+  state & Lens.over playerA undoCollision
+        & Lens.over playerB undoCollision
+        & Lens.over ball    undoCollision
+
+move :: (HasPosition a PositionComponent, HasMovement a MovementComponent, HasCollision a CollisionComponent)
+     => a -> a
+move obj =
+  case obj^.collision . collided of
+    Nothing ->
+      let spd = obj ^. movement . speed
+          dir = (obj ^. movement . direction) `mulPoint` Point spd spd
+      in Lens.over (position . pos) (`addPoint` dir) obj
+    Just _ ->
+      undoCollision obj
+
+undoCollision :: (HasPosition a PositionComponent, HasMovement a MovementComponent, HasCollision a CollisionComponent)
+              => a -> a
+undoCollision obj =
+  case obj^.collision . collided of
+    Nothing ->
+      obj
+    Just dir ->
+      let spd  = obj ^. movement . speed
+          dir' = dir `mulPoint` Point (-spd) (-spd)
+      in Lens.over (position . pos) (`addPoint` dir') obj
+
+updateBall :: GameState -> Ball -> Ball
+updateBall state obj =
+  case checkScreenBounds (state ^. screen) $ move obj of
     (True, ball') ->
       Lens.over (movement . direction . y) (* (-1)) ball'
     (False, ball') ->
-      case testCollisionWith [ball'] [game ^. playerA, game ^. playerB] of
+      case testCollisionWith [ball'] [state ^. playerA & posAndColl, state ^. playerB & posAndColl] of
         [ball''] ->
           if isJust (ball'' ^. collision . collided) then
             Lens.over (movement . direction . y) (* (-1)) ball'
@@ -188,8 +220,8 @@ checkScreenBounds closing obj =
 
 -- render
 
-render :: MonadIO m => SDL.Renderer -> MySDL.World Game -> m ()
-render renderer (_, Game _ pA pB b) = do
+render :: MonadIO m => SDL.Renderer -> MySDL.World GameState -> m ()
+render renderer (_, GameState _ pA pB b) = do
   let rects = VS.fromList $ fmap toRect [pA, pB] ++ [toRect b]
   MySDL.setBGColor (Linear.V4 0 0 0 255) renderer
   SDL.rendererDrawColor renderer SDL.$= Linear.V4 255 255 255 255
