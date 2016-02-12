@@ -22,10 +22,6 @@ tested-with: GHC==7.10
 extra-source-files:
   README.md
 
-source-repository head
-  type: git
-  location: https://github.com/soupi/gameboy
-
 library
   build-depends:
     base
@@ -39,7 +35,6 @@ library
    ,linear
    ,text
    ,transformers >= 0.4.0.0 && < 0.5.0.0
-   ,optparse-applicative
 
   exposed-modules:
     MySDL.MySDL
