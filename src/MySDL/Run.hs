@@ -52,11 +52,12 @@ run (interface, world) =
   MySDL.withWindow "Game" (MySDL.myWindowConfig (Linear.V2 800 600)) $
     flip MySDL.withRenderer (setBGColorBlack >=> MySDL.apploop world (update interface) . render interface)
 
-update :: MonadIO m => WorldInterface e a
-                    -> [SDL.EventPayload]
-                    -> (SDL.Scancode -> Bool)
-                    -> World a
-                    -> m (Either (Maybe String) (World a))
+update :: MonadIO m
+  => WorldInterface e a
+  -> [SDL.EventPayload]
+  -> (SDL.Scancode -> Bool)
+  -> World a
+  -> m (Either (Maybe String) (World a))
 update interface ev hasKey =
   updateWorld interface (eventsMaker interface ev hasKey)
 

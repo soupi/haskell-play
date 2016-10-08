@@ -41,7 +41,11 @@ withRenderer window go = do
 
 -- |app loop: takes the current world and functions that updates the world renders it
 -- manage ticks, events and loop
-apploop :: MonadIO m => a -> ([SDL.EventPayload] -> (SDL.Scancode -> Bool) -> a -> m (Either (Maybe String) a)) -> (a -> m ()) -> m a
+apploop :: MonadIO m
+  => a
+  -> ([SDL.EventPayload] -> (SDL.Scancode -> Bool) -> a -> m (Either (Maybe String) a))
+  -> (a -> m ())
+  -> m a
 apploop world update render = do
   tick <- SDL.ticks
   events <- collectEvents
@@ -82,5 +86,5 @@ checkEvent = elem
 -- |will delay until ticks pass
 regulateTicks :: MonadIO m => Word.Word32 -> Word.Word32 -> Word.Word32 -> m ()
 regulateTicks ticks tick new_tick =
-  when (ticks - (new_tick - tick) < ticks && (ticks - (new_tick - tick)) > 0) $
+  when (ticks - (new_tick - tick) <= ticks && (ticks - (new_tick - tick)) > 0) $
     SDL.delay $ ticks - (new_tick - tick)

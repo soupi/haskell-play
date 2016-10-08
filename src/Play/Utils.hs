@@ -4,6 +4,11 @@
 module Play.Utils where
 
 import Data.List (group, sort)
+import Data.Function ((&))
+import Control.Lens ((^.), over)
+
+import Play.Types (Point)
+import qualified Play.Types as Types
 
 -- |
 -- replicate operation and chain it
@@ -61,3 +66,14 @@ dashOpener, spaceOpener :: String
 dashOpener  = "  - "
 spaceOpener = "    "
 
+
+addPoint :: Point -> Point -> Point
+addPoint = apToPoint (+)
+
+mulPoint :: Point -> Point -> Point
+mulPoint = apToPoint (*)
+
+apToPoint :: (Int -> Int -> Int) -> Point -> Point -> Point
+apToPoint f p1 p2 =
+  p1 & over Types.x (f (p2 ^. Types.x))
+     & over Types.y (f (p2 ^. Types.y))

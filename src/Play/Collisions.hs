@@ -3,34 +3,39 @@
 
 module Play.Collisions where
 
-import qualified Lens.Micro as Lens
-import           Lens.Micro ((^.))
+import qualified Control.Lens as Lens
+import           Control.Lens ((^.))
 
-import           Play.Types
+import Play.Types
+import Play.Utils
 
 ----------------
 -- Collisions
 ----------------
 
-posAndColl :: (HasCollision a CollisionComponent, HasPosition a PositionComponent)
-           => a -> (PositionComponent, CollisionComponent)
+posAndColl
+  :: (HasCollision a CollisionComponent, HasPosition a PositionComponent)
+  => a -> (PositionComponent, CollisionComponent)
 posAndColl obj = (obj ^. position, obj ^. collision)
 
-testCollisionWith :: (HasCollision a CollisionComponent, HasPosition a PositionComponent)
-                  => [a] -> [(PositionComponent, CollisionComponent)] -> [a]
+testCollisionWith
+  :: (HasCollision a CollisionComponent, HasPosition a PositionComponent)
+  => [a] -> [(PositionComponent, CollisionComponent)] -> [a]
 testCollisionWith objs1 objs2 =
   (\o -> Lens.set (collision . collided) (foldl addCollisions Nothing $ fmap (collisionDetection o) objs2) o) <$> objs1
 
-collisionDetection :: (HasCollision a CollisionComponent, HasPosition a PositionComponent)
-                    => a -> (PositionComponent, CollisionComponent) -> Maybe Point
+collisionDetection
+  :: (HasPosition a PositionComponent)
+  => a -> (PositionComponent, CollisionComponent) -> Maybe Point
 collisionDetection a (bData,_) =
   let aData = a ^. position
   in
     collisionDirection aData bData
 
-testCollision :: PositionComponent
-              -> PositionComponent
-              -> Bool
+testCollision
+  :: PositionComponent
+  -> PositionComponent
+  -> Bool
 testCollision (PositionComponent (Point ax ay) (Size aw ah)) (PositionComponent (Point bx by) (Size bw bh)) =
   not $
      ax >= bx +  bw
@@ -56,9 +61,10 @@ corners (Point ox oy, Size ow oh) =
   , Point (ox + ow) (oy + oh)
   ]
 
-pointInRect :: Point
-            -> (Point, Size)
-            -> Bool
+pointInRect
+  :: Point
+  -> (Point, Size)
+  -> Bool
 pointInRect (Point px py) (Point ox oy, Size ow oh) =
      (ox <= px && px <= ox + ow)
   && (oy <= py && py <= oy + oh)
@@ -84,3 +90,15 @@ addCollisions (Just (Point ax ay)) (Just (Point bx by)) =
   in
       Just $ Point x_ y_
 
+
+undoCollision
+  :: (HasPosition a PositionComponent, HasMovement a MovementComponent, HasCollision a CollisionComponent)
+  => a -> a
+undoCollision obj =
+  case obj^.collision . collided of
+    Nothing ->
+      obj
+    Just dir ->
+      let spd  = obj ^. movement . speed
+          dir' = dir `mulPoint` Point (-spd) (-spd)
+      in Lens.over (position . pos) (`addPoint` dir') obj

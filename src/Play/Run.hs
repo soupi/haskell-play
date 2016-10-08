@@ -13,15 +13,16 @@ import qualified Data.Vector.Storable as VS
 import qualified Foreign.C.Types as C (CInt)
 import qualified Linear
 import qualified Linear.Affine as Linear
-import qualified Lens.Micro as Lens
-import           Lens.Micro ((&), (^.))
-import           Lens.Micro.TH (makeLenses, makeFields)
+import qualified Control.Lens as Lens
+import           Control.Lens ((&), (^.), makeLenses)
 
 import qualified MySDL.MySDL as MySDL
 import qualified MySDL.Run   as MySDL
-import           Play.Types
-import           Play.Collisions
 
+import Play.Types
+import Play.Utils
+import Play.Movement
+import Play.Collisions
 
 -----------
 -- Types --
@@ -38,14 +39,6 @@ data GameState =
 
 type Ball = GameObj
 
-data Screen =
-  Screen
-    { screenPosition  :: PositionComponent
-    , screenCollision :: CollisionComponent
-    } deriving (Show, Read, Eq, Ord)
-
-
-makeFields ''Screen
 makeLenses ''GameState
 
 type Keys = [(Key, Bool)]
@@ -92,7 +85,7 @@ initBall :: Ball
 initBall =
   GameObj
     (PositionComponent (Point 390 290) (Size 20 20))
-    (MovementComponent (Point 0 1) 3)
+    (MovementComponent (Point 0 1) 2)
     (CollisionComponent Nothing)
 
 initPlayerA :: GameObj
@@ -146,50 +139,17 @@ update keys (sets, state) =
           & undoCollisions
   in  (pure . pure) (sets, nState)
 
-addPoint :: Point -> Point -> Point
-addPoint = apToPoint (+)
-
-mulPoint :: Point -> Point -> Point
-mulPoint = apToPoint (*)
-
-apToPoint :: (Int -> Int -> Int) -> Point -> Point -> Point
-apToPoint f p1 p2 =
-  p1 & Lens.over x (f (p2 ^. x))
-     & Lens.over y (f (p2 ^. y))
-
 collisionLayers :: GameState -> GameState
 collisionLayers s =
-  s & \state -> Lens.over playerA (head . (`testCollisionWith` [posAndColl $ state ^. playerB]) . (:[])) state
-    & \state -> Lens.over playerB (head . (`testCollisionWith` [posAndColl $ state ^. playerA]) . (:[])) state
-    & \state -> Lens.over ball    (head . (`testCollisionWith` [posAndColl $ state ^. playerA, posAndColl $ state ^. playerB]) . (:[])) state
+  s & (\state -> Lens.over playerA (head . (`testCollisionWith` [posAndColl $ state ^. playerB]) . (:[])) state)
+    & (\state -> Lens.over playerB (head . (`testCollisionWith` [posAndColl $ state ^. playerA]) . (:[])) state)
+    & (\state -> Lens.over ball    (head . (`testCollisionWith` [posAndColl $ state ^. playerA, posAndColl $ state ^. playerB]) . (:[])) state)
 
 undoCollisions :: GameState -> GameState
 undoCollisions state =
   state & Lens.over playerA undoCollision
         & Lens.over playerB undoCollision
         & Lens.over ball    undoCollision
-
-move :: (HasPosition a PositionComponent, HasMovement a MovementComponent, HasCollision a CollisionComponent)
-     => a -> a
-move obj =
-  case obj^.collision . collided of
-    Nothing ->
-      let spd = obj ^. movement . speed
-          dir = (obj ^. movement . direction) `mulPoint` Point spd spd
-      in Lens.over (position . pos) (`addPoint` dir) obj
-    Just _ ->
-      undoCollision obj
-
-undoCollision :: (HasPosition a PositionComponent, HasMovement a MovementComponent, HasCollision a CollisionComponent)
-              => a -> a
-undoCollision obj =
-  case obj^.collision . collided of
-    Nothing ->
-      obj
-    Just dir ->
-      let spd  = obj ^. movement . speed
-          dir' = dir `mulPoint` Point (-spd) (-spd)
-      in Lens.over (position . pos) (`addPoint` dir') obj
 
 updateBall :: GameState -> Ball -> Ball
 updateBall state obj =
@@ -204,19 +164,6 @@ updateBall state obj =
           else
             ball''
         _ -> error "unexpected logic error when testing collision of ball"
-
-checkScreenBounds :: Screen -> GameObj -> (Bool, GameObj)
-checkScreenBounds closing obj =
-  let (Point x_ y_) = obj ^. position . pos
-      (Size  w_ h_) = obj ^. position . size
-      (Point bx by) = closing ^. position . pos
-      (Size  bw bh) = closing ^. position . size
-  in
-  if | x_ < bx -> (,) True $ Lens.set (position . pos . x) bx obj
-     | x_ + w_ > bx + bw -> (,) True $ Lens.set (position . pos . x) (bw - w_) obj
-     | y_ < by -> (,) True $ Lens.set (position . pos . y) by obj
-     | y_ + h_ > by + bh -> (,) True $ Lens.set (position . pos . y) (bh - h_) obj
-     | otherwise -> (False, obj)
 
 -- render
 
